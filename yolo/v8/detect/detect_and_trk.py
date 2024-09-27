@@ -8,6 +8,75 @@ from ultralytics.yolo.utils import DEFAULT_CONFIG, ROOT, ops
 from ultralytics.yolo.utils.checks import check_imgsz
 from ultralytics.yolo.utils.plotting import Annotator, colors, save_one_box
 
+
+# Helper function to calculate Euclidean distance
+def euclidean_distance(pt1, pt2):
+    return np.linalg.norm(np.array(pt1) - np.array(pt2))
+
+
+def draw_boxes_with_speed(
+    img,
+    bbox,
+    identities=None,
+    categories=None,
+    names=None,
+    previous_positions=None,
+    fps=30,
+    offset=(0, 0),
+    distance_to_street=10,  # Distance from camera to street in meters
+    correction_factor=5,  # Correction factor for the camera angle and perspective
+):
+    speeds = {}
+    for i, box in enumerate(bbox):
+        x1, y1, x2, y2 = [int(i) for i in box]
+        x1 += offset[0]
+        x2 += offset[0]
+        y1 += offset[1]
+        y2 += offset[1]
+        id = int(identities[i]) if identities is not None else 0
+        category = names[int(categories[i])]
+        box_center = (int((box[0] + box[2]) / 2), int((box[1] + box[3]) / 2))
+
+        # Speed calculation: track position change between frames
+        if id in previous_positions:
+            prev_center = previous_positions[id]
+            distance = euclidean_distance(box_center, prev_center)
+
+            speed_px_per_sec = distance * fps
+            # Adjust speed with correction factor and distance to street
+            speed_real_world = speed_px_per_sec / (
+                correction_factor * (distance_to_street / 10)
+            )
+            speeds[id] = speed_real_world
+        else:
+            speed_real_world = 0  # First frame, no speed
+
+        # Save current position as previous for next frame
+        previous_positions[id] = box_center
+
+        # label = f"{category} #{id} | {speed:.0f} px/s"
+        label = f"{category} #{id} | {speed_real_world:.0f} km/h"
+
+        (w, h), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
+
+        bounding_color = (0, 255, 253)
+
+        if category != "car" and category != "truck":
+            bounding_color = (0, 0, 255)
+
+        cv2.rectangle(img, (x1, y1), (x2, y2), bounding_color, 2)
+        cv2.rectangle(img, (x1, y1 - 20), (x1 + w, y1), (255, 144, 30), -1)
+        cv2.putText(
+            img, label, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, [255, 255, 255], 1
+        )
+
+    return img, speeds
+
+
+# Initialize tracker for previous positions
+previous_positions = {}
+
+
 tracker = None
 
 
@@ -174,12 +243,25 @@ class DetectionPredictor(BasePredictor):
             identities = tracked_dets[:, 8]
             categories = tracked_dets[:, 4]
 
-            draw_boxes(
+            # draw_boxes(
+            #     im0,
+            #     bbox_xyxy,
+            #     identities,
+            #     categories,
+            #     self.model.names,
+            # )
+
+            # Pass the previous positions and FPS to draw_boxes_with_speed
+            im0, speeds = draw_boxes_with_speed(
                 im0,
                 bbox_xyxy,
                 identities,
                 categories,
                 self.model.names,
+                previous_positions,
+                fps=30,
+                distance_to_street=10,  # You can adjust this distance based on the camera setup
+                correction_factor=5,  # Adjust based on camera angle and perspective
             )
 
         gn = torch.tensor(im0.shape)[[1, 0, 1, 0]]  # normalization gain whwh
