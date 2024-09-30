@@ -27,6 +27,7 @@ def draw_boxes_with_speed(
     correction_factor=5,  # Correction factor for the camera angle and perspective
 ):
     speeds = {}
+
     for i, box in enumerate(bbox):
         x1, y1, x2, y2 = [int(i) for i in box]
         x1 += offset[0]
@@ -36,7 +37,6 @@ def draw_boxes_with_speed(
         id = int(identities[i]) if identities is not None else 0
         category = names[int(categories[i])]
         box_center = (int((box[0] + box[2]) / 2), int((box[1] + box[3]) / 2))
-
         # Speed calculation: track position change between frames
         if id in previous_positions:
             prev_center = previous_positions[id]
@@ -61,8 +61,29 @@ def draw_boxes_with_speed(
 
         bounding_color = (0, 255, 253)
 
+        overlap = False
+
+        for j, box2 in enumerate(bbox):
+            category2 = names[int(categories[j])]
+
+            if (
+                i != j
+                and (category2 == "car" or category2 == "truck")
+                and (category == "car" or category == "truck")
+            ):
+                x11, y11, x22, y22 = [int(j) for j in box2]
+                print(
+                    f"{category} #{id} | {x1} {y1} {x2} {y2} | vs {x11} {y11} {x22} {y22}"
+                )
+
+                if x2 >= x11 and x1 <= x22 and y2 >= y11 and y1 <= y22:
+                    overlap = True
+
         if category != "car" and category != "truck":
             bounding_color = (0, 0, 255)
+
+        if overlap:
+            bounding_color = (0, 255, 0)
 
         cv2.rectangle(img, (x1, y1), (x2, y2), bounding_color, 2)
         cv2.rectangle(img, (x1, y1 - 20), (x1 + w, y1), (255, 144, 30), -1)
